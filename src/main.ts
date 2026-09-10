@@ -83,9 +83,11 @@ function change(fn: (draft: Project) => void) {
     historyId = '';
     persist();
     render();
+    return true;
   } catch (e) {
     toast(e instanceof Error ? e.message : '입력을 확인하세요.');
     render();
+    return false;
   }
 }
 function field(
@@ -135,6 +137,28 @@ $('#app').innerHTML = `
       <aside class="results"><div class="results-heading"><div><span class="eyebrow">INSPECTION</span><h2>검토 결과</h2></div><span id="result-count"></span></div><div id="result-summary"></div><div id="result-mode"></div><div class="result-filters"><button data-filter="all">전체</button><button data-filter="attention">확인 필요</button><button data-filter="pass">기준 충족</button></div><div id="findings"></div><div class="result-footnote">문 치수 충족은 반입 가능 보장이 아닙니다.<br/>검토서는 저장된 입력값과 결과를 사용합니다.</div></aside>
     </section><footer class="page-footer"><span>INSTALLCHECK <b> / </b> 최종 사양과 현장 사이의 마지막 확인</span><span id="save-status"></span></footer>
   </main><div id="toast" role="status" aria-live="polite"></div><article id="report"></article>`;
+
+const modelButton=document.createElement('button');
+modelButton.className='button';modelButton.id='import-model';modelButton.textContent='3D 파일 가져오기';
+$('.project-actions').prepend(modelButton);
+modelButton.onclick=async()=>{
+  modelButton.disabled=true;
+  try {
+  const {openModelImport}=await import('./import-dialog.ts');
+  openModelImport(({asset,size})=>{
+    let addedId='';
+    const success=change(p=>{
+      p.assets=[...(p.assets??[]),asset];addedId=uid();
+      p.equipment.push({id:addedId,name:asset.name,revision:'Import.1',x:p.site.width/2,z:p.site.depth/2,angle:0,
+        clearance:{front:800,back:500,left:500,right:500,top:300},
+        parts:[{id:uid(),name:asset.name,meshId:asset.id,x:0,y:0,z:0,...size}]});
+    });
+    if(success){selected=addedId;tab='equipment';render();scene?.focus(addedId);toast('형상을 가져왔습니다. 간섭 검사는 외곽 상자 기준입니다.');}
+    return success;
+  });
+  } catch {toast('3D 가져오기 화면을 열지 못했습니다. 다시 시도하세요.');}
+  finally {modelButton.disabled=false;}
+};
 
 function renderEquipment() {
   const e =
@@ -196,6 +220,15 @@ function render() {
       : tab === 'site'
         ? renderSite()
         : renderHistory();
+  if(tab==='equipment') for(const part of project.equipment.find(e=>e.id===selected)?.parts??[]) {
+    if(!part.meshId)continue;
+    const form=document.querySelector<HTMLFormElement>(`[data-part="${part.id}"]`);
+    const note=document.createElement('p');note.className='hint mesh-note';
+    note.textContent='가져온 형상 · 검사는 외곽 상자 기준입니다. W/D/H 변경 시 형상이 해당 크기로 늘어나거나 줄어듭니다.';
+    form?.prepend(note);
+  }
+  const usesMesh=project.equipment.some(e=>e.parts.some(p=>p.meshId));
+  $('.scene-badge').innerHTML=usesMesh?'3D IMPORT <span>표시: 메시 · 검사: 외곽 상자</span>':'LEVEL 2 <span>구성요소 치수 기반</span>';
   document.querySelectorAll<HTMLDetailsElement>('details').forEach((d) => {
     const f = d.querySelector<HTMLFormElement>('form');
     if (openParts.includes(f?.dataset.part ?? f?.dataset.obstacle))
@@ -515,7 +548,7 @@ $('#clearance').onclick = () => {
 };
 $('#export').onclick = () =>
   download(
-    JSON.stringify(project, null, 2),
+    JSON.stringify(project),
     `InstallCheck-${new Date().toISOString().slice(0, 10)}.json`,
   );
 $('#import').onclick = () => $<HTMLInputElement>('#file').click();
@@ -524,8 +557,8 @@ $<HTMLInputElement>('#file').onchange = async (e) => {
     file = el.files?.[0];
   if (!file) return;
   try {
-    if (file.size > 5 * 1024 * 1024)
-      throw new Error('5 MB 이하의 프로젝트 JSON을 선택하세요.');
+    if (file.size > 20 * 1024 * 1024)
+      throw new Error('20 MB 이하의 프로젝트 JSON을 선택하세요.');
     const next = validateProject(JSON.parse(await file.text()));
     if (
       !confirm(
@@ -580,6 +613,12 @@ $('#print').onclick = () => {
   const i = getInspection();
   if (!i) return;
   $('#report').innerHTML = report(i);
+  const imported=i.basis.equipment.flatMap(e=>e.parts.filter(p=>p.meshId).map(p=>`${e.name} / ${p.name}`));
+  if(imported.length){
+    const note=document.createElement('p');note.className='report-warning';
+    note.textContent=`3D 파일 형상 포함: ${imported.join(', ')}. 위 검사는 가져온 형상의 외곽 상자 기준이며, 삼각형·곡면·빈 공간의 정밀 간섭을 검사한 결과가 아닙니다.`;
+    $('#report').prepend(note);
+  }
   window.print();
 };
 render();

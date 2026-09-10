@@ -12,7 +12,9 @@ export interface Box {
 export interface Part extends Omit<Box, 'angle'> {
   id: string;
   name: string;
+  meshId?: string;
 }
+export interface MeshAsset { id: string; name: string; positions: number[] }
 export interface Equipment {
   id: string;
   name: string;
@@ -66,8 +68,9 @@ export interface Inspection {
   findings: Finding[];
 }
 export interface Project extends Basis {
-  schema: 1;
+  schema: 1 | 2;
   inspections: Inspection[];
+  assets?: MeshAsset[];
 }
 export const uid = () => crypto.randomUUID();
 export function basis(p: Basis): Basis {
@@ -255,7 +258,7 @@ export function validateProject(input: unknown): Project {
         parts: list(e.parts, 30).map((value) => {
           if (++count > 250) fail();
           const p = obj(value);
-          return { id: id(p.id), name: str(p.name), ...dims(p) };
+          return { id: id(p.id), name: str(p.name), ...dims(p), ...(p.meshId === undefined ? {} : {meshId:str(p.meshId,80)}) };
         }),
       };
     });
@@ -286,7 +289,18 @@ export function validateProject(input: unknown): Project {
     };
   }
   const v = obj(input);
-  if (v.schema !== 1) fail();
+  if (v.schema !== 1 && v.schema !== 2) fail();
+  let meshValues=0;
+  const assetIds=new Set<string>();
+  const assets = list(v.assets ?? [], 100).map(value=>{
+    const a=obj(value), id=str(a.id,80);
+    if(!/^[a-zA-Z0-9-]+$/.test(id)||assetIds.has(id))fail();
+    assetIds.add(id);
+    const positions=list(a.positions,180000).map(n=>num(n,0,1));
+    meshValues+=positions.length;
+    if(!positions.length||positions.length%9||meshValues>180000)fail();
+    return {id,name:str(a.name),positions};
+  });
   const b = readBasis(v);
   const historyIds = new Set<string>();
   const inspections = list(v.inspections, 30).map((value) => {
@@ -311,5 +325,8 @@ export function validateProject(input: unknown): Project {
       findings: inspect(b),
     };
   });
-  return { schema: 1, ...b, inspections };
+  for(const value of [b,...inspections.map(i=>i.basis)])
+    for(const e of value.equipment) for(const part of e.parts)
+      if(part.meshId!==undefined&&!assetIds.has(part.meshId))fail();
+  return { schema: assets.length ? 2 : 1, ...b, inspections, ...(assets.length?{assets}:{}) };
 }

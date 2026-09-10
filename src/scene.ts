@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { Basis } from './model.ts';
+import type { Basis, MeshAsset } from './model.ts';
 import { envelope, worldBoxes } from './inspection.ts';
 
 export class WorkspaceScene {
@@ -174,7 +174,7 @@ export class WorkspaceScene {
     sprite.scale.set(3.3, 0.43, 1);
     this.content.add(sprite);
   }
-  update(project: Basis, selected: string, showClearance = true) {
+  update(project: Basis & {assets?: MeshAsset[]}, selected: string, showClearance = true) {
     this.project = project;
     this.content.traverse((o) => {
       if (o instanceof T.Mesh || o instanceof T.LineSegments) {
@@ -281,14 +281,29 @@ export class WorkspaceScene {
       const group = new T.Group();
       this.groups.set(e.id, group);
       this.content.add(group);
-      worldBoxes(e).forEach((b, i) =>
-        draw(
+      worldBoxes(e).forEach((b, i) => {
+        const asset=project.assets?.find(a=>a.id===e.parts[i].meshId);
+        if(asset) {
+          const positions=new Float32Array(asset.positions.length);
+          for(let j=0;j<positions.length;j+=3) {
+            positions[j]=(asset.positions[j]-.5)*b.w/1000;
+            positions[j+1]=asset.positions[j+1]*b.h/1000;
+            positions[j+2]=(asset.positions[j+2]-.5)*b.d/1000;
+          }
+          const geometry=new T.BufferGeometry();
+          geometry.setAttribute('position',new T.BufferAttribute(positions,3));
+          geometry.computeVertexNormals();
+          const mesh=new T.Mesh(geometry,new T.MeshStandardMaterial({color:e.id===selected?'#65a78e':'#88a6a0',roughness:.65,side:T.DoubleSide}));
+          mesh.position.set(b.x/1000,b.y/1000,b.z/1000);mesh.rotation.y=b.angle*Math.PI/180;
+          mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.id=e.id;group.add(mesh);this.meshes.push(mesh);
+          draw(b,group,'#269676',undefined,true);
+        } else draw(
           b,
           group,
           i === 1 ? '#385852' : e.id === selected ? '#79b4a0' : '#88a6a0',
           e.id,
-        ),
-      );
+        );
+      });
       if (showClearance)
         draw(envelope(e, true), group, '#2fa487', undefined, true);
       const env = envelope(e);

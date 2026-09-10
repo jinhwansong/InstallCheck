@@ -1162,3 +1162,19 @@ p {
     padding: 3mm;
   }
 }
+:root .project-actions { flex-wrap: wrap; }
+.model-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; box-sizing: border-box; padding: 28px; border: 1px solid #ccd8d4; border-radius: 16px; color: #243c35; background: #fff; }
+.model-dialog::backdrop { background: #122e286b; }
+.import-heading, .import-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.import-actions { justify-content: flex-end; margin-top: 20px; }
+.model-dialog h2 { margin: 12px 0; }
+.model-dialog p, .import-limit { font-size: 13px; line-height: 1.65; }
+.file-drop { display: grid; gap: 12px; padding: 18px; margin: 20px 0; border: 1px dashed #89a99b; border-radius: 8px; }
+.file-drop input { max-width: 100%; }
+.file-drop small { color: #61756d; }
+.import-size, .import-limit { padding: 14px; background: #f0f5f2; border-radius: 8px; margin-top: 14px; }
+.import-error { color: #ac302f; }
+.import-confirm { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.6; }
+.import-confirm input { flex: 0 0 auto; margin-top: 4px; }
+.mesh-note { padding: 12px; background: #fff7e8; }
+@media print { .model-dialog { display: none; } }
