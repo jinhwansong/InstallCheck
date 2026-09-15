@@ -1,10 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMesh, prepareMesh } from '../src/import3d.ts';
-import { sampleProject, validateProject, createInspection } from '../src/model.ts';
+import { sampleProject, validateProject, createInspection, isStale } from '../src/model.ts';
+import { inspect } from '../src/inspection.ts';
 
 const obj = 'v 0 0 0\nv 2 0 0\nv 0 3 0\nv 0 0 4\nf 1 2 3\nf 1 4 2\nf 1 3 4\nf 2 4 3';
 const bytes=(s:string)=>new TextEncoder().encode(s).buffer;
+test('factory background persists in history, never becomes a solid obstacle, and requires separate site review',()=>{
+  const p=sampleProject();
+  p.assets=[{id:'factory-mesh',name:'factory.obj',positions:[0,0,0,1,0,0,0,1,1]}];
+  p.factory={name:'factory.obj',meshId:'factory-mesh',x:6000,y:0,z:4500,w:12000,d:9000,h:4000,angle:0};
+  const original=inspect(sampleProject());
+  const results=inspect(p);
+  assert.deepEqual(results.filter(f=>f.rule==='collision'),original.filter(f=>f.rule==='collision'));
+  assert.ok(results.some(f=>f.rule==='factory-background'&&f.status==='unknown'));
+  p.inspections.push(createInspection(p));
+  const restored=validateProject(JSON.parse(JSON.stringify(p)));
+  assert.equal(restored.schema,3);
+  assert.deepEqual(restored.factory,p.factory);
+  restored.factory!.x+=100;
+  assert.ok(isStale(restored,restored.inspections[0]));
+  assert.equal(restored.inspections[0].basis.factory!.x,6000);
+  delete restored.factory;
+  assert.equal(validateProject(restored).schema,3,'history still needs factory-aware schema');
+  restored.assets=[];assert.throws(()=>validateProject(restored));
+  const bad=structuredClone(p);bad.factory!.angle=Infinity;assert.throws(()=>validateProject(bad));
+});
 test('OBJ parsing and explicit units/up-axis create a correctly sized preview',async()=>{
   const raw=await parseMesh(bytes(obj),'model.obj');
   const ready=prepareMesh(raw,1000,'Y');

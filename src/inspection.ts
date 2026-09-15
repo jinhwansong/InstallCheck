@@ -224,5 +224,6 @@ export function inspect(p: Basis): Finding[] {
       );
     }
   }
+  if(p.factory) add('factory-background','unknown','공장 배경 형상은 자동 검사하지 않음','공장 파일은 배치 참고용입니다. 벽·기둥은 현장 장애물로 별도 등록하고 현장 치수·천장·문을 확인하세요. 배경 안의 기존 기계도 자동 분리되지 않습니다.');
   return out;
 }

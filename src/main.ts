@@ -36,6 +36,7 @@ let selected = project.equipment[0]?.id ?? '',
   tab: 'equipment' | 'site' | 'history' = 'equipment',
   historyId = '',
   showClearance = true,
+  showFactory = true,
   filter = 'all';
 const undo: Project[] = [],
   redo: Project[] = [];
@@ -145,15 +146,22 @@ modelButton.onclick=async()=>{
   modelButton.disabled=true;
   try {
   const {openModelImport}=await import('./import-dialog.ts');
-  openModelImport(({asset,size})=>{
+  openModelImport(({asset,size,role})=>{
     let addedId='';
     const success=change(p=>{
-      p.assets=[...(p.assets??[]),asset];addedId=uid();
+        p.assets=[...(p.assets??[]),asset];addedId=uid();
+        if(role==='factory'){
+          p.factory={name:asset.name,meshId:asset.id,x:size.w/2,y:0,z:size.d/2,angle:0,...size};
+          return;
+        }
       p.equipment.push({id:addedId,name:asset.name,revision:'Import.1',x:p.site.width/2,z:p.site.depth/2,angle:0,
         clearance:{front:800,back:500,left:500,right:500,top:300},
         parts:[{id:uid(),name:asset.name,meshId:asset.id,x:0,y:0,z:0,...size}]});
     });
-    if(success){selected=addedId;tab='equipment';render();scene?.focus(addedId);toast('형상을 가져왔습니다. 간섭 검사는 외곽 상자 기준입니다.');}
+      if(success){
+        if(role==='factory'){tab='site';showFactory=true;render();scene?.fit();toast('공장 배경을 고정했습니다. 현장 치수와 벽·기둥을 별도로 확인하세요.');}
+        else {selected=addedId;tab='equipment';render();scene?.focus(addedId);toast('기계를 가져왔습니다. 이동·회전할 수 있으며 검사는 외곽 상자 기준입니다.');}
+      }
     return success;
   });
   } catch {toast('3D 가져오기 화면을 열지 못했습니다. 다시 시도하세요.');}
@@ -172,6 +180,10 @@ function renderEquipment() {
     <div class="panel-section"><div class="section-heading"><h3>구성요소 <span>${e.parts.length}</span></h3><button id="add-part" class="small-button">+ 추가</button></div>${e.parts.map((p, i) => `<details class="part" ${i === 0 ? 'open' : ''}><summary><span><i class="part-dot"></i>${esc(p.name)}</span><small>${p.w} × ${p.d} × ${p.h}</small></summary><form data-part="${p.id}">${field('구성요소명', 'name', p.name, 'text')}<div class="field-grid three">${field('폭 W', 'w', p.w, 'number', 1, 100000)}${field('깊이 D', 'd', p.d, 'number', 1, 100000)}${field('높이 H', 'h', p.h, 'number', 1, 100000)}${field('로컬 X', 'x', p.x)}${field('로컬 Z', 'z', p.z)}${field('바닥 높이 Y', 'y', p.y, 'number', 0, 100000)}</div><button type="button" class="text-button danger" data-remove-part="${p.id}" ${e.parts.length === 1 ? 'disabled' : ''}>구성요소 삭제</button></form></details>`).join('')}</div>
     <div class="panel-section"><div class="section-heading"><h3>작업·정비 여유</h3><span class="unit">mm</span></div><form id="clearance-form"><div class="field-grid">${(['front', 'back', 'left', 'right', 'top'] as const).map((key, i) => field(['전면 (+Z)', '후면 (-Z)', '좌측 (-X)', '우측 (+X)', '상부'][i], key, e.clearance[key], 'number', 0, 10000)).join('')}</div></form><p class="hint">설비의 로컬 방향 기준입니다. 외곽 상자 전체에 보수적으로 적용합니다.</p></div><div class="panel-section inline-actions"><button id="duplicate" class="button">설비 복제</button><button id="remove-equipment" class="text-button danger">설비 삭제</button></div>`
   }`;
+}
+function renderFactory() {
+  const f=project.factory;
+  return `<div class="panel-section"><h3>공장 배경</h3>${f?`<p class="hint">${esc(f.name)} · 드래그 잠금 · 자동 검사 제외</p><button id="toggle-factory" class="button" aria-pressed="${showFactory}">${showFactory?'배경 숨기기':'배경 표시'}</button><form id="factory-form"><div class="field-grid">${field('중심 X','x',f.x)}${field('중심 Z','z',f.z)}${field('바닥 Y','y',f.y,'number',0)}${field('회전 °','angle',f.angle,'number',-360,360)}${field('폭 W','w',f.w,'number',1)}${field('깊이 D','d',f.d,'number',1)}${field('높이 H','h',f.h,'number',1)}</div></form><p class="hint">W/D/H 변경 시 배경 형상이 늘어나거나 줄어듭니다. 현장 유효 치수·천장·문은 아래에서 별도 입력하세요. 숨겨도 검사 범위는 바뀌지 않습니다.</p><button id="remove-factory" class="text-button danger">배경 제거</button>`:'<p class="hint">상단 3D 파일 가져오기에서 ‘공장’을 선택하세요. 기계 파일은 ‘기계’로 각각 불러와 배치할 수 있습니다.</p>'}<p class="hint">공장 안의 벽·기둥·기계는 자동 분리되지 않습니다. 검사할 벽·기둥은 현장 장애물로 등록하세요.</p></div>`;
 }
 function renderSite() {
   const s = project.site;
@@ -218,7 +230,7 @@ function render() {
     tab === 'equipment'
       ? renderEquipment()
       : tab === 'site'
-        ? renderSite()
+        ? renderFactory()+renderSite()
         : renderHistory();
   if(tab==='equipment') for(const part of project.equipment.find(e=>e.id===selected)?.parts??[]) {
     if(!part.meshId)continue;
@@ -228,7 +240,7 @@ function render() {
     form?.prepend(note);
   }
   const usesMesh=project.equipment.some(e=>e.parts.some(p=>p.meshId));
-  $('.scene-badge').innerHTML=usesMesh?'3D IMPORT <span>표시: 메시 · 검사: 외곽 상자</span>':'LEVEL 2 <span>구성요소 치수 기반</span>';
+    $('.scene-badge').innerHTML=project.factory?'FACTORY <span>공장: 배경 전용 · 등록 장애물만 검사</span>':usesMesh?'3D IMPORT <span>표시: 메시 · 검사: 외곽 상자</span>':'LEVEL 2 <span>구성요소 치수 기반</span>';
   document.querySelectorAll<HTMLDetailsElement>('details').forEach((d) => {
     const f = d.querySelector<HTMLFormElement>('form');
     if (openParts.includes(f?.dataset.part ?? f?.dataset.obstacle))
@@ -292,7 +304,7 @@ function render() {
   $('#undo').toggleAttribute('disabled', undo.length === 0);
   $('#redo').toggleAttribute('disabled', redo.length === 0);
   $('#print').toggleAttribute('disabled', !getInspection());
-  scene?.update(project, selected, showClearance);
+  scene?.update(project, selected, showClearance, showFactory);
   bindPanels();
 }
 
@@ -312,6 +324,23 @@ function equipment(p: Project): Equipment {
   return p.equipment.find((e) => e.id === selected)!;
 }
 function bindPanels() {
+  onChange(document.querySelector('#factory-form'),(f,p)=>{
+    if(p.factory) for(const key of ['x','y','z','w','d','h','angle'] as const) p.factory[key]=num(f,key);
+  });
+  const toggleFactory=$('#toggle-factory');
+  if(toggleFactory)toggleFactory.onclick=()=>{showFactory=!showFactory;render();};
+  const removeFactory=$('#remove-factory');
+  if(removeFactory)removeFactory.onclick=()=>change(p=>{delete p.factory;});
+  const obstacleButton=$('#add-obstacle');
+  if(obstacleButton){
+    const controls=document.createElement('div');controls.className='obstacle-presets';
+    controls.innerHTML='<button class="small-button" data-obstacle-kind="wall">+ 벽 등록</button><button class="small-button" data-obstacle-kind="column">+ 기둥 등록</button><p class="hint">배경을 참고해 실제 위치와 치수를 입력하세요. 등록한 상자만 간섭 검사에 사용합니다.</p>';
+    obstacleButton.closest('.section-heading')!.after(controls);
+    controls.querySelectorAll<HTMLButtonElement>('[data-obstacle-kind]').forEach(button=>button.onclick=()=>change(p=>{
+      const wall=button.dataset.obstacleKind==='wall';
+      p.obstacles.push({id:uid(),name:wall?'등록 벽':'등록 기둥',x:p.site.width/2,y:0,z:p.site.depth/2,w:wall?3000:500,d:wall?200:500,h:p.site.height??3000,angle:0});
+    }));
+  }
   document
     .querySelectorAll<HTMLButtonElement>('[data-select]')
     .forEach((b) => (b.onclick = () => select(b.dataset.select!)));
@@ -485,7 +514,7 @@ function bindPanels() {
         const id = b.dataset.focus;
         if (id && project.equipment.some((e) => e.id === id)) {
           selected = id;
-          scene?.update(project, selected, showClearance);
+          scene?.update(project, selected, showClearance, showFactory);
           scene?.focus(id);
         } else
           toast(
@@ -544,7 +573,7 @@ $('#plan').onclick = () => scene?.fit(true);
 $('#clearance').onclick = () => {
   showClearance = !showClearance;
   $('#clearance').setAttribute('aria-pressed', String(showClearance));
-  scene?.update(project, selected, showClearance);
+  scene?.update(project, selected, showClearance, showFactory);
 };
 $('#export').onclick = () =>
   download(
@@ -613,6 +642,11 @@ $('#print').onclick = () => {
   const i = getInspection();
   if (!i) return;
   $('#report').innerHTML = report(i);
+  if(i.basis.factory){
+    const f=i.basis.factory,note=document.createElement('p');note.className='report-warning';
+    note.textContent=`공장 배경: ${f.name} / W×D×H ${f.w}×${f.d}×${f.h} mm / 중심 X ${f.x}, 바닥 Y ${f.y}, 중심 Z ${f.z} mm / 회전 ${f.angle}°. 배경은 표시 참고용이며 자동 충돌 검사에서 제외됩니다. 별도로 등록한 현장 장애물만 검사했습니다.`;
+    $('#report').prepend(note);
+  }
   const imported=i.basis.equipment.flatMap(e=>e.parts.filter(p=>p.meshId).map(p=>`${e.name} / ${p.name}`));
   if(imported.length){
     const note=document.createElement('p');note.className='report-warning';
@@ -631,7 +665,7 @@ try {
       selected = id;
     }),
   );
-  scene.update(project, selected, showClearance);
+  scene.update(project, selected, showClearance, showFactory);
   scene.fit();
 } catch {
   $('#viewport').innerHTML =

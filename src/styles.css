@@ -1178,3 +1178,6 @@ p {
 .import-confirm input { flex: 0 0 auto; margin-top: 4px; }
 .mesh-note { padding: 12px; background: #fff7e8; }
 @media print { .model-dialog { display: none; } }
+:root .obstacle-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.obstacle-presets button { white-space: nowrap; }
+.obstacle-presets .hint { flex-basis: 100%; margin: 0; }

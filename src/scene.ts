@@ -1,7 +1,7 @@
 import * as T from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import type { Basis, MeshAsset } from './model.ts';
-import { envelope, worldBoxes } from './inspection.ts';
+import type { Basis, Box, MeshAsset } from './model.ts';
+import { corners, envelope, worldBoxes } from './inspection.ts';
 
 export class WorkspaceScene {
   private renderer: T.WebGLRenderer;
@@ -174,7 +174,7 @@ export class WorkspaceScene {
     sprite.scale.set(3.3, 0.43, 1);
     this.content.add(sprite);
   }
-  update(project: Basis & {assets?: MeshAsset[]}, selected: string, showClearance = true) {
+  update(project: Basis & {assets?: MeshAsset[]}, selected: string, showClearance = true, showFactory = true) {
     this.project = project;
     this.content.traverse((o) => {
       if (o instanceof T.Mesh || o instanceof T.LineSegments) {
@@ -273,6 +273,23 @@ export class WorkspaceScene {
       lines.rotation.copy(mesh.rotation);
       parent.add(lines);
     };
+    const drawImported=(asset:MeshAsset,b:Box,parent:T.Group,color:string,id?:string)=>{
+      const positions=new Float32Array(asset.positions.length);
+      for(let j=0;j<positions.length;j+=3) {
+        positions[j]=(asset.positions[j]-.5)*b.w/1000;
+        positions[j+1]=asset.positions[j+1]*b.h/1000;
+        positions[j+2]=(asset.positions[j+2]-.5)*b.d/1000;
+      }
+      const geometry=new T.BufferGeometry();
+      geometry.setAttribute('position',new T.BufferAttribute(positions,3));
+      geometry.computeVertexNormals();
+      const mesh=new T.Mesh(geometry,new T.MeshStandardMaterial({color,roughness:.65,side:T.DoubleSide,transparent:!id,opacity:id?1:.25,depthWrite:!!id}));
+      mesh.position.set(b.x/1000,b.y/1000,b.z/1000);mesh.rotation.y=b.angle*Math.PI/180;
+      mesh.castShadow=!!id;mesh.receiveShadow=!!id;parent.add(mesh);
+      if(id){mesh.userData.id=id;this.meshes.push(mesh);}
+    };
+    const factory=project.factory, factoryAsset=project.assets?.find(a=>a.id===factory?.meshId);
+    if(showFactory&&factory&&factoryAsset) drawImported(factoryAsset,factory,this.content,'#6b8094');
     for (const o of project.obstacles) {
       draw(o, this.content, '#b8c5bb');
       this.label(o.name, o.x / 1000, o.z / 1000, (o.y + o.h) / 1000 + 0.2);
@@ -284,18 +301,7 @@ export class WorkspaceScene {
       worldBoxes(e).forEach((b, i) => {
         const asset=project.assets?.find(a=>a.id===e.parts[i].meshId);
         if(asset) {
-          const positions=new Float32Array(asset.positions.length);
-          for(let j=0;j<positions.length;j+=3) {
-            positions[j]=(asset.positions[j]-.5)*b.w/1000;
-            positions[j+1]=asset.positions[j+1]*b.h/1000;
-            positions[j+2]=(asset.positions[j+2]-.5)*b.d/1000;
-          }
-          const geometry=new T.BufferGeometry();
-          geometry.setAttribute('position',new T.BufferAttribute(positions,3));
-          geometry.computeVertexNormals();
-          const mesh=new T.Mesh(geometry,new T.MeshStandardMaterial({color:e.id===selected?'#65a78e':'#88a6a0',roughness:.65,side:T.DoubleSide}));
-          mesh.position.set(b.x/1000,b.y/1000,b.z/1000);mesh.rotation.y=b.angle*Math.PI/180;
-          mesh.castShadow=true;mesh.receiveShadow=true;mesh.userData.id=e.id;group.add(mesh);this.meshes.push(mesh);
+          drawImported(asset,b,group,e.id===selected?'#65a78e':'#88a6a0',e.id);
           draw(b,group,'#269676',undefined,true);
         } else draw(
           b,
@@ -321,14 +327,15 @@ export class WorkspaceScene {
   }
   fit(plan = this.plan) {
     this.plan = plan;
-    const w = this.project.site.width / 1000,
-      d = this.project.site.depth / 1000,
-      size = Math.max(w, d);
-    this.controls.target.set(w / 2, 0, d / 2);
+    const points=[{x:0,z:0},{x:this.project.site.width,z:this.project.site.depth},...(this.project.factory?corners(this.project.factory):[])];
+    const minX=Math.min(...points.map(p=>p.x))/1000,maxX=Math.max(...points.map(p=>p.x))/1000;
+    const minZ=Math.min(...points.map(p=>p.z))/1000,maxZ=Math.max(...points.map(p=>p.z))/1000;
+    const x=(minX+maxX)/2,z=(minZ+maxZ)/2,size=Math.max(maxX-minX,maxZ-minZ,((this.project.factory?.y??0)+(this.project.factory?.h??0))/1000);
+    this.controls.target.set(x, 0, z);
     this.camera.position.set(
-      w / 2 + (plan ? 0 : size * 0.82),
+      x + (plan ? 0 : size * 0.82),
       size * (plan ? 1.8 : 1.1),
-      d / 2 + (plan ? 0.001 : size * 0.95),
+      z + (plan ? 0.001 : size * 0.95),
     );
     this.controls.update();
     this.render();

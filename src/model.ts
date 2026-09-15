@@ -15,6 +15,7 @@ export interface Part extends Omit<Box, 'angle'> {
   meshId?: string;
 }
 export interface MeshAsset { id: string; name: string; positions: number[] }
+export interface FactoryBackground extends Box { name: string; meshId: string }
 export interface Equipment {
   id: string;
   name: string;
@@ -50,6 +51,7 @@ export interface Basis {
   };
   equipment: Equipment[];
   obstacles: Obstacle[];
+  factory?: FactoryBackground;
 }
 export type Status = 'error' | 'warning' | 'unknown' | 'pass';
 export interface Finding {
@@ -68,7 +70,7 @@ export interface Inspection {
   findings: Finding[];
 }
 export interface Project extends Basis {
-  schema: 1 | 2;
+  schema: 1 | 2 | 3;
   inspections: Inspection[];
   assets?: MeshAsset[];
 }
@@ -80,6 +82,7 @@ export function basis(p: Basis): Basis {
     site: p.site,
     equipment: p.equipment,
     obstacles: p.obstacles,
+    ...(p.factory ? {factory:p.factory} : {}),
   });
 }
 export const fingerprint = (p: Basis) => JSON.stringify(basis(p));
@@ -263,7 +266,9 @@ export function validateProject(input: unknown): Project {
       };
     });
     if (equipment.some((e) => e.parts.length === 0)) fail();
+    const factory = v.factory === undefined ? undefined : obj(v.factory);
     return {
+      ...(factory ? {factory:{name:str(factory.name),meshId:str(factory.meshId,80),...dims(factory),angle:num(factory.angle,-360,360)}} : {}),
       name: str(v.name),
       customer: str(v.customer),
       site: {
@@ -289,7 +294,7 @@ export function validateProject(input: unknown): Project {
     };
   }
   const v = obj(input);
-  if (v.schema !== 1 && v.schema !== 2) fail();
+  if (v.schema !== 1 && v.schema !== 2 && v.schema !== 3) fail();
   let meshValues=0;
   const assetIds=new Set<string>();
   const assets = list(v.assets ?? [], 100).map(value=>{
@@ -325,8 +330,11 @@ export function validateProject(input: unknown): Project {
       findings: inspect(b),
     };
   });
-  for(const value of [b,...inspections.map(i=>i.basis)])
+  const bases=[b,...inspections.map(i=>i.basis)];
+  for(const value of bases) {
+    if(value.factory&&!assetIds.has(value.factory.meshId))fail();
     for(const e of value.equipment) for(const part of e.parts)
       if(part.meshId!==undefined&&!assetIds.has(part.meshId))fail();
-  return { schema: assets.length ? 2 : 1, ...b, inspections, ...(assets.length?{assets}:{}) };
+  }
+  return { schema: v.schema === 3 || bases.some(value=>value.factory) ? 3 : assets.length ? 2 : 1, ...b, inspections, ...(assets.length?{assets}:{}) };
 }
