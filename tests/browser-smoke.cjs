@@ -48,6 +48,15 @@ const assert=require('node:assert/strict');
  await page.pdf({path:path.join(evidence,'review.pdf'),format:'A4',printBackground:true});
  const downloadEvent=page.waitForEvent('download');await page.locator('#export').click();const download=await downloadEvent;await download.saveAs(path.join(evidence,'backup.json'));
  await page.locator('#file').setInputFiles(path.join(evidence,'backup.json'));assert.equal((await saved()).equipment.length,3);
+ await page.locator('[data-stage=layout]').click();await page.locator('.equipment-item').nth(1).click();assert.equal(await page.locator('.model-reference').count(),1);
+ const partCount=(await saved()).equipment[1].parts.length;
+ await page.locator('[data-preset=tank]').click();assert.equal((await saved()).equipment[1].parts.length,partCount+1);
+ const tank=(await saved()).equipment[1].parts.at(-1);assert.ok(tank.meshId);
+ await page.locator(`[data-shape-part="${tank.id}"][data-shape=box]`).click();assert.equal((await saved()).equipment[1].parts.at(-1).meshId,undefined);
+ await page.locator(`[data-shape-part="${tank.id}"][data-shape=x]`).click();assert.ok((await saved()).equipment[1].parts.at(-1).meshId);
+ await page.locator('#undo').click();assert.equal((await saved()).equipment[1].parts.at(-1).meshId,undefined);await page.locator('#redo').click();
+ await page.reload();await page.locator('.equipment-item').nth(1).click();assert.ok((await saved()).equipment[1].parts.at(-1).meshId);
+ await page.screenshot({path:path.join(evidence,'primitive-desktop.png'),fullPage:true});
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(evidence,'mobile.png'),fullPage:true});
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);console.log('PASS photo, evidence/invalidation, snapshots/diff/report, DXF registration, 3D objects, reload/backup, PDF, mobile, no external requests');
  }finally{await browser.close();}

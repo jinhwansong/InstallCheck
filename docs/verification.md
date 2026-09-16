@@ -1,5 +1,11 @@
 # Verification - initial workspace
 
+## Local primitive assembly — 2026-09-16
+
+Added a reference photo panel, body/tank/conveyor/control presets, and box or X/Y/Z cylinder display shapes using the existing mesh asset format. No schema migration or external generation service is required. Primitive values are explicitly examples, not inferred dimensions. Inspection remains conservative bounding-box inspection.
+
+`npm test`: 25 passed. Build passed with the existing bundle-size warning. Browser smoke passed including tank creation, box/cylinder switching, undo/redo and reload, in addition to existing import/report/backup flows. Desktop screenshot inspected; reference photo and assembly controls render correctly. No external requests or page errors were observed. Tests use synthetic fixtures, not accurate reconstruction of the user's machine.
+
 ## Photo model linking — 2026-09-16
 
 `npm test` passed 23 tests and the production build passed. The browser smoke check additionally links a sample OBJ to an existing photo equipment part, asserts unchanged dimensions/placement/photo and historical snapshot, and verifies undo/redo. This is file linking and size calibration, not an image-to-3D inference test. No image was sent to a generation provider. Automatic generation is pending a provider/account or a suitable local GPU environment.

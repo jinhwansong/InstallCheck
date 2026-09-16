@@ -12,6 +12,7 @@ import { inspect } from './inspection.ts';
 import { WorkspaceScene } from './scene.ts';
 import { resetChangedEvidence, changesSince, questions } from './review.ts';
 import { esc, reviewForm, reportEvidence } from './workflow-ui.ts';
+import { cylinderAsset, presetPart, type CylinderAxis, type partPresets } from './primitives.ts';
 
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
@@ -266,10 +267,13 @@ function render() {
         ? renderFactory()+renderSite()
         : renderHistory();
   if(tab==='equipment') for(const part of project.equipment.find(e=>e.id===selected)?.parts??[]) {
-    if(!part.meshId)continue;
     const form=document.querySelector<HTMLFormElement>(`[data-part="${part.id}"]`);
+    const shapes=document.createElement('div');shapes.className='primitive-actions';
+    shapes.innerHTML=`<span>표시 형태</span>${[['box','상자'],['y','세로 원통'],['x','가로 원통 X'],['z','가로 원통 Z']].map(([shape,label])=>`<button type="button" class="small-button" data-shape="${shape}" data-shape-part="${part.id}">${label}</button>`).join('')}`;
+    form?.append(shapes);
+    if(!part.meshId)continue;
     const note=document.createElement('p');note.className='hint mesh-note';
-    note.textContent='가져온 형상 · 검사는 외곽 상자 기준입니다. W/D/H 변경 시 형상이 해당 크기로 늘어나거나 줄어듭니다.';
+    note.textContent=`${project.assets?.find(a=>a.id===part.meshId)?.name??'3D 형상'} · 검사는 외곽 상자 기준입니다. W/D/H 변경 시 형상도 변합니다. 원통 단면의 두 치수가 다르면 타원형이 됩니다.`;
     form?.prepend(note);
   }
   const usesMesh=project.equipment.some(e=>e.parts.some(p=>p.meshId));
@@ -344,6 +348,11 @@ function render() {
     if(e){
       const heading=document.createElement('div');heading.className='selection-heading';heading.innerHTML=`<span class="eyebrow">SELECTED EQUIPMENT</span><h2>${esc(e.name)}</h2><span class="pill">${questions(e).length?`미확인 ${questions(e).length}개`:'담당자 확인 기록 있음'}</span>`;selection.append(heading);
       const sections=Array.from($('#inspector-content').children).slice(1);sections.forEach(node=>selection.append(node));
+      const builder=document.createElement('section');builder.className='panel-section primitive-builder';
+      builder.innerHTML='<h3>사진 보며 간이 모델 만들기</h3><p class="hint">사진 자동 인식 없이 부품을 직접 조합합니다. 기본 치수·위치는 예시이므로 실제 값으로 수정하세요.</p><div class="primitive-actions"><button class="button" data-preset="body">+ 본체</button><button class="button" data-preset="tank">+ 원통 탱크</button><button class="button" data-preset="conveyor">+ 컨베이어</button><button class="button" data-preset="control">+ 제어반</button></div><p class="hint">구성요소에서 형태·크기·로컬 X/Z·바닥 높이 Y를 수정하세요. 원통도 외곽 상자로 검사하므로 모서리의 빈 공간에서 보수적인 경고가 생길 수 있습니다.</p>';
+      const photo=project.photos?.find(p=>p.id===e.photoId);
+      if(photo){const img=document.createElement('img');img.src=photo.data;img.alt=`${e.name} 형상 참고 사진`;img.className='model-reference';builder.querySelector('h3')!.after(img);}
+      selection.querySelector('.selection-heading')!.after(builder);
       selection.insertAdjacentHTML('beforeend',reviewForm(e));
       const modelPanel=document.createElement('section');modelPanel.className='panel-section';
       modelPanel.innerHTML=`<h3>사진 설비의 3D 형상</h3><p class="hint">현재 사진은 식별용입니다. 별도로 생성한 모델을 연결하면 상자 대신 형상을 표시합니다. 자동 생성 서비스는 아직 연결되지 않았습니다.</p><label class="field">교체할 구성요소<select id="model-part">${e.parts.map(part=>`<option value="${esc(part.id)}">${esc(part.name)}${part.meshId?' · 3D 연결됨':''}</option>`).join('')}</select></label><button type="button" class="button" id="attach-model">생성된 3D 파일 연결</button><p class="hint">선택 구성요소의 치수·위치를 유지합니다. 전체 기계 모델을 일부 부품에 연결하지 않도록 범위를 확인하세요.</p>`;
@@ -380,6 +389,16 @@ function equipment(p: Project): Equipment {
   return p.equipment.find((e) => e.id === selected)!;
 }
 function bindPanels() {
+  document.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach(button=>button.onclick=()=>{
+    const {part,asset}=presetPart(button.dataset.preset as keyof typeof partPresets);
+    if(change(p=>{if(asset)p.assets=[...(p.assets??[]),asset];equipment(p).parts.push(part);})){document.querySelector<HTMLDetailsElement>(`[data-part="${part.id}"]`)?.closest('details')?.setAttribute('open','');}
+  });
+  document.querySelectorAll<HTMLButtonElement>('[data-shape]').forEach(button=>button.onclick=()=>change(p=>{
+    const part=equipment(p).parts.find(part=>part.id===button.dataset.shapePart);
+    if(!part)throw new Error('구성요소를 다시 선택하세요.');
+    if(button.dataset.shape==='box')delete part.meshId;
+    else {const asset=cylinderAsset(button.dataset.shape as CylinderAxis);const existing=p.assets?.find(a=>a.name===asset.name&&JSON.stringify(a.positions)===JSON.stringify(asset.positions));if(!existing)p.assets=[...(p.assets??[]),asset];part.meshId=existing?.id??asset.id;}
+  }));
   const attach=$('#attach-model');
   if(attach)attach.onclick=async()=>{
     const equipmentId=selected,partId=$<HTMLSelectElement>('#model-part').value;
