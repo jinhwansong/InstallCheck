@@ -1,0 +1,45 @@
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const evidence=process.env.INSTALLCHECK_EVIDENCE_DIR||fs.mkdtempSync(path.join(os.tmpdir(),'installcheck-'));
+fs.mkdirSync(evidence,{recursive:true});
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({channel:'msedge',headless:true});
+ try{
+ const page=await browser.newPage({viewport:{width:1512,height:1050}}),errors=[],external=[];
+ page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>{if(!/^(http:\/\/127\.0\.0\.1:4173\/|data:|blob:)/.test(r.url()))external.push(r.url());});
+ await page.goto('http://127.0.0.1:4173/');await page.locator('#viewport canvas').waitFor();
+ const saved=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('installcheck-project-v1')));
+ const edit=async(selector,value)=>{await page.locator(selector).fill(value);await page.locator(selector).press('Tab');};
+ const photo=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=640;c.height=400;const x=c.getContext('2d');x.fillStyle='#e7edf5';x.fillRect(0,0,640,400);x.fillStyle='#456894';x.fillRect(100,120,340,210);x.fillStyle='#7e9abe';x.fillRect(130,75,260,100);x.fillStyle='#26394f';x.fillRect(460,180,80,150);x.fillStyle='white';x.font='24px sans-serif';x.fillText('DEMO EQUIPMENT',130,260);return c.toDataURL('image/png').split(',')[1];});
+ await page.locator('#import-photo').click();await page.locator('dialog [name=photo]').setInputFiles({name:'demo.png',mimeType:'image/png',buffer:Buffer.from(photo,'base64')});await page.locator('dialog .photo-preview').waitFor({state:'visible'});
+ for(const [key,val] of Object.entries({name:'사진 설비 DEMO',model:'DEMO-100',source:'샘플 사양서',w:'1500',d:'1000',h:'1800'}))await page.locator(`dialog [name=${key}]`).fill(val);
+ await page.getByRole('button',{name:'설비 등록',exact:true}).click();await page.locator('dialog').waitFor({state:'detached'});
+ assert.equal((await saved()).photos.length,1);assert.equal((await saved()).equipment.length,2);
+ assert.equal(await page.locator('.equipment-icon img').count(),1);
+ await edit('#review-form [name=reviewer]','김담당');await edit('#review-form [name=date]','2026-09-16');
+ for(const key of ['dimensions','clearance','protrusions'])await page.locator(`#review-form [name=${key}]`).check();
+ assert.equal((await saved()).equipment[1].review.dimensions,true);
+ await page.locator('#inspect').click();await edit('[data-part] [name=w]','1600');assert.equal((await saved()).equipment[1].review.dimensions,false);assert.equal((await saved()).equipment[1].review.clearance,true);
+ await page.locator('[data-stage=checks]').click();assert.match(await page.locator('#findings').innerText(),/치수|높이/);
+ await page.locator('[data-stage=report]').click();assert.match(await page.locator('#inspector-content').innerText(),/치수·형상 변경/);
+ await page.evaluate(()=>window.print=()=>{});await page.locator('#print').click();assert.match(await page.locator('#report').innerText(),/김담당/);assert.equal(await page.locator('#report .report-equipment img').count(),1);
+ const obstaclesBefore=(await saved()).obstacles.length;
+ const beforeBadFile=await saved();
+ await page.locator('#import-cad').click();await page.locator('dialog [type=file]').setInputFiles({name:'broken.dxf',mimeType:'text/plain',buffer:Buffer.from('not a drawing')});await page.locator('dialog .import-error').filter({hasText:/./}).waitFor();assert.deepEqual(await saved(),beforeBadFile);await page.getByRole('button',{name:'취소',exact:true}).click();
+ await page.locator('#import-cad').click();await page.locator('dialog [type=file]').setInputFiles('examples/sample-layout.dxf');await page.locator('.cad-status').filter({hasText:'3개 후보'}).waitFor();
+ const rows=page.locator('.cad-table tbody tr');assert.equal(await rows.count(),3);
+ for(let i=0;i<3;i++)await rows.nth(i).locator('[data-key=h]').fill(i===2?'1800':'3000');
+ await page.locator('dialog [name=confirmed]').check();await page.getByRole('button',{name:'선택 객체 등록'}).click();await page.locator('dialog').waitFor({state:'detached'});
+ assert.equal((await saved()).equipment.length,3);assert.equal((await saved()).obstacles.length,obstaclesBefore+2);
+ await page.locator('#import-cad').click();await page.locator('dialog [type=file]').setInputFiles('examples/sample-factory.obj');await page.locator('.cad-status').filter({hasText:'5개 후보'}).waitFor();await page.getByRole('button',{name:'취소',exact:true}).click();
+ await page.reload();await page.locator('#viewport canvas').waitFor();assert.equal((await saved()).photos.length,1);assert.equal((await saved()).equipment.length,3);
+ await page.locator('.equipment-item').nth(1).click();await page.screenshot({path:path.join(evidence,'desktop.png'),fullPage:true});
+ await page.locator('#inspect').click();await page.evaluate(()=>window.print=()=>{});await page.locator('#print').click();assert.equal(await page.locator('.report-layout').count(),1);
+ await page.pdf({path:path.join(evidence,'review.pdf'),format:'A4',printBackground:true});
+ const downloadEvent=page.waitForEvent('download');await page.locator('#export').click();const download=await downloadEvent;await download.saveAs(path.join(evidence,'backup.json'));
+ await page.locator('#file').setInputFiles(path.join(evidence,'backup.json'));assert.equal((await saved()).equipment.length,3);
+ await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(evidence,'mobile.png'),fullPage:true});
+ assert.deepEqual(errors,[]);assert.deepEqual(external,[]);console.log('PASS photo, evidence/invalidation, snapshots/diff/report, DXF registration, 3D objects, reload/backup, PDF, mobile, no external requests');
+ }finally{await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});

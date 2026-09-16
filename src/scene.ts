@@ -32,7 +32,7 @@ export class WorkspaceScene {
   ) {
     this.renderer = new T.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setClearColor('#edf1ef');
+    this.renderer.setClearColor('#eef2f7');
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = T.PCFSoftShadowMap;
     this.renderer.outputColorSpace = T.SRGBColorSpace;
@@ -156,7 +156,7 @@ export class WorkspaceScene {
     x: number,
     z: number,
     y = 0.04,
-    color = '#597371',
+    color = '#6a7f9d',
   ) {
     const canvas = document.createElement('canvas');
     canvas.width = 768;
@@ -261,9 +261,9 @@ export class WorkspaceScene {
         new T.EdgesGeometry(geo),
         new T.LineBasicMaterial({
           color: transparent
-            ? '#299b84'
+            ? '#3976d6'
             : id === selected
-              ? '#087d6d'
+              ? '#245ab2'
               : '#566e68',
           transparent: true,
           opacity: transparent ? 0.6 : 0.55,
@@ -291,7 +291,7 @@ export class WorkspaceScene {
     const factory=project.factory, factoryAsset=project.assets?.find(a=>a.id===factory?.meshId);
     if(showFactory&&factory&&factoryAsset) drawImported(factoryAsset,factory,this.content,'#6b8094');
     for (const o of project.obstacles) {
-      draw(o, this.content, '#b8c5bb');
+      draw(o, this.content, '#a9b4c5');
       this.label(o.name, o.x / 1000, o.z / 1000, (o.y + o.h) / 1000 + 0.2);
     }
     for (const e of project.equipment) {
@@ -301,24 +301,24 @@ export class WorkspaceScene {
       worldBoxes(e).forEach((b, i) => {
         const asset=project.assets?.find(a=>a.id===e.parts[i].meshId);
         if(asset) {
-          drawImported(asset,b,group,e.id===selected?'#65a78e':'#88a6a0',e.id);
-          draw(b,group,'#269676',undefined,true);
+          drawImported(asset,b,group,e.id===selected?'#5986d4':'#8c9ebb',e.id);
+          draw(b,group,'#3972d3',undefined,true);
         } else draw(
           b,
           group,
-          i === 1 ? '#385852' : e.id === selected ? '#79b4a0' : '#88a6a0',
+          i === 1 ? '#405779' : e.id === selected ? '#7299dd' : '#8c9ebb',
           e.id,
         );
       });
       if (showClearance)
-        draw(envelope(e, true), group, '#2fa487', undefined, true);
+        draw(envelope(e, true), group, '#4384ed', undefined, true);
       const env = envelope(e);
       this.label(
         e.name,
         env.x / 1000,
         env.z / 1000,
         env.h / 1000 + 0.32,
-        '#173e37',
+        '#2e4568',
       );
     }
     this.label(`${project.site.width.toLocaleString()} mm`, w / 2, d + 0.45);
@@ -356,5 +356,9 @@ export class WorkspaceScene {
   }
   private render() {
     this.renderer.render(this.scene, this.camera);
+  }
+  capture() {
+    this.render();
+    return this.renderer.domElement.toDataURL('image/jpeg',.85);
   }
 }

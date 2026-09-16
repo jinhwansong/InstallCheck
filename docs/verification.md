@@ -1,5 +1,15 @@
 # Verification - initial workspace
 
+## Workflow update — 2026-09-16
+
+- `npm test`: 22 tests passed, including DXF transforms and unsupported geometry, photo references, evidence invalidation, and existing geometry/import behavior.
+- `npm run build`: passed; the existing Three.js bundle size warning remains.
+- `node tests/browser-smoke.cjs`: passed against the production preview in headless Edge. Covers photo registration, confirmations and invalidation, snapshot differences, report photos, rejected malformed DXF preserving the project, DXF registration, separate 3D candidates, reload, JSON round trip, PDF generation and mobile overflow. No uncaught page errors or external requests observed.
+- The preview server had stopped during the interrupted session; it was restarted before the successful final browser run.
+- Desktop/mobile screenshots were inspected during implementation. Report DOM was checked and a PDF generated; no claim of independent PDF text/layout verification for this update.
+- Manual review covered file limits, worker cancellation/stale reads, HTML escaping, retained image/history references and atomic registration. Unsupported geometry in a block excludes that whole block rather than understating its bounds.
+- No independent peer review or real customer-file validation was performed. The sequential-work instruction was followed. Synthetic fixtures do not establish accuracy for arbitrary factory CAD or photographs.
+
 Date: 2026-09-09. Scope: the new local-first TypeScript workspace in this previously empty repository. No existing source, tests, commits, or user changes were present.
 
 ## Automated checks

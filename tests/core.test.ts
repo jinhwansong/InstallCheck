@@ -70,7 +70,8 @@ test('separated height and zero clearance do not invent an overlap', () => {
 test('known clear scene passes supported rules while undersized door warns', () => {
   const p=sampleProject();p.obstacles=[];
   p.equipment[0].parts=[{id:'only',name:'small',x:0,y:0,z:0,w:1000,d:1000,h:1000}];
-  assert.equal(inspect(p).every(f=>f.status==='pass'),true);
+  assert.equal(inspect(p).filter(f=>f.rule!=='evidence').every(f=>f.status==='pass'),true);
+  assert.ok(inspect(p).some(f=>f.rule==='evidence'&&f.status==='unknown'));
   p.site.doorWidth=900;
   assert.equal(inspect(p).find(f=>f.rule==='door')?.status,'warning');
 });

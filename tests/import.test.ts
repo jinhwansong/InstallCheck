@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMesh, prepareMesh } from '../src/import3d.ts';
+import { parseMesh, parseMeshObjects, prepareMesh } from '../src/import3d.ts';
 import { sampleProject, validateProject, createInspection, isStale } from '../src/model.ts';
 import { inspect } from '../src/inspection.ts';
 
@@ -33,6 +33,10 @@ test('OBJ parsing and explicit units/up-axis create a correctly sized preview',a
   assert.equal(ready.positions.length,36);
   assert.ok(ready.positions.every(n=>n>=0&&n<=1));
   assert.deepEqual(prepareMesh(raw,10,'Z').size,{w:20,h:40,d:30});
+});
+test('OBJ objects retain names and source positions for separate registration',async()=>{
+ const objects=await parseMeshObjects(bytes('o machine\nv 0 0 0\nv 2 0 0\nv 0 3 4\nf 1 2 3\no column\nv 10 0 0\nv 12 0 0\nv 10 3 4\nf 4 5 6'),'parts.obj');
+ assert.deepEqual(objects.map(o=>o.name),['machine','column']);assert.equal(objects[1].positions[0],10);
 });
 test('file import rejects unsupported, invalid, flat and external resource models',async()=>{
   await assert.rejects(parseMesh(bytes('file'),'model.step'),/GLB|STL|OBJ/);

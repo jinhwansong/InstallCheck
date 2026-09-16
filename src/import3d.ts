@@ -30,7 +30,7 @@ function checkGLB(buffer: ArrayBuffer) {
   }
 }
 
-export async function parseMesh(buffer: ArrayBuffer, filename: string): Promise<number[]> {
+export async function parseMeshObjects(buffer: ArrayBuffer, filename: string): Promise<{name:string;positions:number[]}[]> {
   if (buffer.byteLength > MAX_MODEL_BYTES) throw new Error('3D 파일은 10 MB 이하만 지원합니다.');
   const extension = filename.split('.').at(-1)?.toLowerCase();
   const manager = new T.LoadingManager();
@@ -42,16 +42,18 @@ export async function parseMesh(buffer: ArrayBuffer, filename: string): Promise<
     checkGLB(buffer);
     root = (await new GLTFLoader(manager).parseAsync(buffer, '')).scene;
   } else throw new Error('GLB·STL·OBJ 파일을 선택하세요. STEP·DWG·사진은 아직 지원하지 않습니다.');
-  const positions: number[] = [];
+  const objects:{name:string;positions:number[]}[]=[];
+  let totalValues=0;
   try {
     root.updateMatrixWorld(true);
     root.traverse(object => {
       if (!(object instanceof T.Mesh)) return;
+      const positions:number[]=[];
       const geometry = object.geometry;
       const vertex = geometry.getAttribute('position');
       if (!vertex || vertex.itemSize !== 3) throw new Error('메시 좌표가 올바르지 않습니다.');
       const index = geometry.getIndex(), count = index?.count ?? vertex.count;
-      if (count % 3 || positions.length + count * 3 > MAX_MESH_VALUES)
+      if (count % 3 || totalValues + count * 3 > MAX_MESH_VALUES)
         throw new Error('최대 20,000개의 삼각형만 지원합니다. 면 수를 줄여주세요.');
       const point = new T.Vector3();
       for (let i = 0; i < count; i++) {
@@ -61,9 +63,12 @@ export async function parseMesh(buffer: ArrayBuffer, filename: string): Promise<
         if (![point.x, point.y, point.z].every(Number.isFinite)) throw new Error('유효하지 않은 메시 좌표입니다.');
         positions.push(point.x, point.y, point.z);
       }
+      totalValues+=positions.length;
+      if(positions.length)objects.push({name:(object.name||object.parent?.name||`객체 ${objects.length+1}`).slice(0,120),positions});
+      if(objects.length>100)throw new Error('메시 객체는 최대 100개까지 가져올 수 있습니다.');
     });
-    if (!positions.length) throw new Error('표시할 삼각형 메시가 없습니다.');
-    return positions;
+    if (!objects.length) throw new Error('표시할 삼각형 메시가 없습니다.');
+    return objects;
   } finally {
     root.traverse(object => {
       if (object instanceof T.Mesh) {
@@ -72,6 +77,10 @@ export async function parseMesh(buffer: ArrayBuffer, filename: string): Promise<
       }
     });
   }
+}
+
+export async function parseMesh(buffer:ArrayBuffer, filename:string):Promise<number[]> {
+  return (await parseMeshObjects(buffer,filename)).flatMap(object=>object.positions);
 }
 
 export function prepareMesh(raw: number[], unit: number, up: 'Y'|'Z') {

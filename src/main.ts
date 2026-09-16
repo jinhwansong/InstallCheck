@@ -1,4 +1,5 @@
 import './styles.css';
+import './workflow.css';
 import {
   sampleProject,
   validateProject,
@@ -9,15 +10,9 @@ import {
 import type { Equipment, Finding, Inspection, Project } from './model.ts';
 import { inspect } from './inspection.ts';
 import { WorkspaceScene } from './scene.ts';
+import { resetChangedEvidence, changesSince, questions } from './review.ts';
+import { esc, reviewForm, reportEvidence } from './workflow-ui.ts';
 
-const esc = (s: unknown) =>
-  String(s).replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[
-        c
-      ]!,
-  );
 const $ = <T extends HTMLElement = HTMLElement>(s: string) =>
   document.querySelector<T>(s)!;
 const KEY = 'installcheck-project-v1';
@@ -37,6 +32,7 @@ let selected = project.equipment[0]?.id ?? '',
   historyId = '',
   showClearance = true,
   showFactory = true,
+  stage: 'materials'|'layout'|'checks'|'report' = 'materials',
   filter = 'all';
 const undo: Project[] = [],
   redo: Project[] = [];
@@ -75,6 +71,7 @@ function change(fn: (draft: Project) => void) {
   const draft = structuredClone(project);
   try {
     fn(draft);
+    resetChangedEvidence(project,draft);
     const next = validateProject({ ...draft, inspections: [] });
     next.inspections = draft.inspections;
     undo.push(project);
@@ -116,6 +113,7 @@ function findings(): Finding[] {
 function select(id: string) {
   selected = id;
   tab = 'equipment';
+  stage = 'layout';
   render();
 }
 function download(data: string, name: string, type = 'application/json') {
@@ -139,9 +137,44 @@ $('#app').innerHTML = `
     </section><footer class="page-footer"><span>INSTALLCHECK <b> / </b> 최종 사양과 현장 사이의 마지막 확인</span><span id="save-status"></span></footer>
   </main><div id="toast" role="status" aria-live="polite"></div><article id="report"></article>`;
 
+const steps=document.createElement('nav');steps.className='workflow-steps';steps.setAttribute('aria-label','설치 검토 단계');
+steps.innerHTML=[['materials','01','자료 등록'],['layout','02','배치 검토'],['checks','03','확인사항'],['report','04','검토서']].map(([key,n,label])=>`<button data-stage="${key}"><span>${n}</span>${label}</button>`).join('');
+$('.workspace').before(steps);
+const selection=document.createElement('div');selection.id='selection-content';$('.results').prepend(selection);
+const libraryActions=document.createElement('div');libraryActions.className='library-actions';
+libraryActions.innerHTML='<span class="eyebrow">PROJECT ASSETS</span><button id="import-photo" class="button primary">＋ 사진으로 설비 등록</button><button id="import-cad" class="button">도면 객체 추출 · DXF / 3D</button>';
+$('.inspector .tabs').after(libraryActions);
+const questionsButton=document.createElement('button');questionsButton.id='export-questions';questionsButton.className='button';questionsButton.textContent='현장 질문 목록 ↓';$('.result-filters').after(questionsButton);
+questionsButton.onclick=()=>download(findings().filter(f=>f.status!=='pass').map(f=>`${(historyId?getInspection()!.basis:project).equipment.find(e=>e.id===f.equipmentId)?.name??'현장'} | ${statusText[f.status]} | ${f.title}\n${f.detail}`).join('\n\n'),'InstallCheck_확인사항.txt','text/plain;charset=utf-8');
+steps.querySelectorAll<HTMLButtonElement>('[data-stage]').forEach(b=>b.onclick=()=>{stage=b.dataset.stage as typeof stage;if(stage==='report')tab='history';else if(stage==='materials'||stage==='layout')tab='equipment';render();});
+$('#import-photo').onclick=async()=>{
+ try{const {openPhotoImport}=await import('./photo-dialog.ts');openPhotoImport(input=>{
+   let id='';const ok=change(p=>{id=uid();const photoId=uid();p.photos=[...(p.photos??[]),{id:photoId,data:input.data}];
+     p.equipment.push({id,name:input.name,revision:'Rev.1',photoId,x:p.site.width/2,z:p.site.depth/2,angle:0,parts:[{id:uid(),name:'외곽 치수',x:0,y:0,z:0,w:input.w,d:input.d,h:input.h}],clearance:{front:0,back:0,left:0,right:0,top:0},review:{model:input.model,source:input.source,reviewer:'',date:'',dimensions:false,clearance:false,protrusions:false,notes:''}});
+   });if(ok){select(id);scene?.focus(id);toast('사진 설비를 등록했습니다. 치수와 정비 여유는 미확인 상태입니다.');}return ok;
+ });}catch{toast('사진 등록 화면을 열지 못했습니다.');}
+};
+$('#import-cad').onclick=async()=>{
+ try{const {openCadImport}=await import('./cad-dialog.ts');openCadImport((items,source)=>{
+   const ok=change(p=>{for(const item of items){const {name,x,y,z,w,d,h,angle}=item;
+     if(item.role==='equipment'){
+       const meshId=item.positions?uid():undefined;
+       if(meshId)p.assets=[...(p.assets??[]),{id:meshId,name,positions:item.positions!}];
+       p.equipment.push({id:uid(),name,revision:'도면 가져오기',x,z,angle,parts:[{id:uid(),name,x:0,y,z:0,w,d,h,...(meshId?{meshId}:{})}],clearance:{front:0,back:0,left:0,right:0,top:0},review:{model:'',source:source.slice(0,500),reviewer:'',date:'',dimensions:false,clearance:false,protrusions:false,notes:'도면에서 추출한 외곽입니다. 실제 치수와 돌출부를 확인하세요.'}});
+     }else p.obstacles.push({id:uid(),name,x,y,z,w,d,h,angle});
+   }});if(ok){tab='site';stage='layout';render();scene?.fit();toast(`${items.length}개 객체를 등록했습니다. 현장 유효 치수도 확인하세요.`);}return ok;
+ });}catch{toast('도면 가져오기 화면을 열지 못했습니다.');}
+};
 const modelButton=document.createElement('button');
 modelButton.className='button';modelButton.id='import-model';modelButton.textContent='3D 파일 가져오기';
-$('.project-actions').prepend(modelButton);
+libraryActions.append(modelButton);
+const newProject=document.createElement('button');newProject.className='text-button';newProject.id='new-project';newProject.textContent='빈 프로젝트로 새 검토 시작';libraryActions.append(newProject);
+newProject.onclick=()=>{
+  if(!confirm('새 검토를 시작할까요? 현재 자료는 먼저 JSON으로 백업하세요. 이번 작업 중에는 되돌릴 수 있습니다.'))return;
+  undo.push(project);redo.length=0;
+  project={schema:4,name:'새 설치 검토',customer:'',site:{name:'검토 구역',width:12000,depth:9000,height:null,doorWidth:null,doorHeight:null,measuredAt:'',tolerance:20},equipment:[],obstacles:[],inspections:[]};
+  selected='';historyId='';tab='site';stage='materials';showFactory=true;storageLocked=false;persist();render();scene?.fit();toast('기본 구역은 12 × 9 m입니다. 실제 현장 치수부터 입력하세요.');
+};
 modelButton.onclick=async()=>{
   modelButton.disabled=true;
   try {
@@ -304,6 +337,26 @@ function render() {
   $('#undo').toggleAttribute('disabled', undo.length === 0);
   $('#redo').toggleAttribute('disabled', redo.length === 0);
   $('#print').toggleAttribute('disabled', !getInspection());
+  steps.querySelectorAll<HTMLButtonElement>('[data-stage]').forEach(button=>{button.classList.toggle('active',button.dataset.stage===stage);button.setAttribute('aria-current',button.dataset.stage===stage?'step':'false');});
+  selection.replaceChildren();
+  if(tab==='equipment'){
+    const e=project.equipment.find(e=>e.id===selected);
+    if(e){
+      const heading=document.createElement('div');heading.className='selection-heading';heading.innerHTML=`<span class="eyebrow">SELECTED EQUIPMENT</span><h2>${esc(e.name)}</h2><span class="pill">${questions(e).length?`미확인 ${questions(e).length}개`:'담당자 확인 기록 있음'}</span>`;selection.append(heading);
+      const sections=Array.from($('#inspector-content').children).slice(1);sections.forEach(node=>selection.append(node));
+      selection.insertAdjacentHTML('beforeend',reviewForm(e));
+    }
+    document.querySelectorAll<HTMLButtonElement>('[data-select]').forEach(button=>{
+      const e=project.equipment.find(e=>e.id===button.dataset.select),photo=project.photos?.find(a=>a.id===e?.photoId),icon=button.querySelector('.equipment-icon');
+      if(photo&&icon){const img=document.createElement('img');img.src=photo.data;img.alt='';icon.replaceChildren(img);}
+    });
+    const guide=document.createElement('p');guide.className='library-guide';guide.textContent='사진·도면으로 등록한 설비를 선택해 배치하세요. 확인되지 않은 치수는 질문 목록에 남습니다.';$('#inspector-content').append(guide);
+  }
+  $('.results').classList.toggle('show-properties',tab==='equipment'&&!!selection.children.length&&(stage==='materials'||stage==='layout'));
+  if(tab==='history'&&getInspection()){
+    const differences=changesSince(project,getInspection()!.basis),panel=document.createElement('section');panel.className='panel-section';
+    panel.innerHTML=`<h3>선택 검토와 현재 작업의 차이</h3><ul>${differences.length?differences.map(x=>`<li>${esc(x)}</li>`).join(''):'<li>입력값이 같습니다.</li>'}</ul>`;$('#inspector-content').append(panel);
+  }
   scene?.update(project, selected, showClearance, showFactory);
   bindPanels();
 }
@@ -324,6 +377,15 @@ function equipment(p: Project): Equipment {
   return p.equipment.find((e) => e.id === selected)!;
 }
 function bindPanels() {
+  onChange(document.querySelector('#review-form'),(f,p)=>{
+    equipment(p).review={model:String(f.get('model')),source:String(f.get('source')),reviewer:String(f.get('reviewer')),date:String(f.get('date')),dimensions:f.has('dimensions'),clearance:f.has('clearance'),protrusions:f.has('protrusions'),notes:String(f.get('notes'))};
+  });
+  const replacePhoto=$<HTMLInputElement>('#replace-photo');
+  if(replacePhoto)replacePhoto.onchange=async()=>{
+    const file=replacePhoto.files?.[0],id=selected;if(!file)return;
+    try{const {readPhoto}=await import('./photo-dialog.ts'),data=await readPhoto(file);change(p=>{const e=p.equipment.find(e=>e.id===id);if(!e)throw new Error('설비가 삭제되었습니다.');const photoId=uid();p.photos=[...(p.photos??[]),{id:photoId,data}];e.photoId=photoId;});}
+    catch(e){toast(e instanceof Error?e.message:'사진을 읽지 못했습니다.');}
+  };
   onChange(document.querySelector('#factory-form'),(f,p)=>{
     if(p.factory) for(const key of ['x','y','z','w','d','h','angle'] as const) p.factory[key]=num(f,key);
   });
@@ -638,10 +700,14 @@ function report(i: Inspection) {
     `<tr>${cells.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`;
   return `<header><span>INSTALLCHECK / 설치 사전 검토서</span><h1>${esc(b.name)}</h1><p>${esc(b.customer)} · ${esc(s.name)}</p></header><p>검토 기록: ${esc(i.id)}<br/>검토 시각: ${esc(new Date(i.createdAt).toLocaleString('ko-KR'))} · 검사 규칙 ${i.engine}</p>${isStale(project, i) ? '<p class="report-warning">이 보고서는 과거 저장된 입력값 기준입니다. 현재 작업이 변경되어 재검토가 필요합니다.</p>' : ''}<h2>1. 현장 기준</h2><table><tbody>${row(['항목', '값 (mm)'])}${row(['현장 폭 × 깊이', `${s.width} × ${s.depth}`])}${row(['천장 높이', s.height ?? '미확인'])}${row(['문 폭 × 높이', `${s.doorWidth ?? '미확인'} × ${s.doorHeight ?? '미확인'}`])}${row(['판정 여유', s.tolerance])}${row(['실측일', s.measuredAt || '미확인'])}</tbody></table><h2>2. 설비와 구성요소</h2>${b.equipment.map((e) => `<h3>${esc(e.name)} / ${esc(e.revision)}</h3><p>위치 X ${e.x}, Z ${e.z} / 회전 ${e.angle}°<br/>정비 여유 전 ${e.clearance.front}, 후 ${e.clearance.back}, 좌 ${e.clearance.left}, 우 ${e.clearance.right}, 상 ${e.clearance.top} mm</p><table><thead>${row(['구성요소', 'W × D × H', '로컬 X / Y / Z'])}</thead><tbody>${e.parts.map((p) => row([p.name, `${p.w} × ${p.d} × ${p.h}`, `${p.x} / ${p.y} / ${p.z}`])).join('')}</tbody></table>`).join('')}<h2>3. 현장 장애물</h2><table><thead>${row(['이름', 'W × D × H', 'X / Y / Z', '회전'])}</thead><tbody>${b.obstacles.map((o) => row([o.name, `${o.w} × ${o.d} × ${o.h}`, `${o.x} / ${o.y} / ${o.z}`, `${o.angle}°`])).join('')}</tbody></table><h2>4. 검사 결과</h2><table><thead>${row(['상태 / 설비', '검사 항목', '판정 근거'])}</thead><tbody>${i.findings.map((f) => row([`${statusText[f.status]} / ${b.equipment.find((e) => e.id === f.equipmentId)?.name ?? '현장'}`, f.title, f.detail])).join('')}</tbody></table><h2>5. 적용 범위와 최종 확인</h2><p>사용자가 입력한 구성요소 치수 및 장애물을 기준으로 계산한 결과입니다. 미등록 돌출부·형상·측정오차를 모두 반영하지 않습니다. 반입 경로, 회전·분해 반입, 운반장비, 하중·구조, 배관·전기 및 안전 인증은 검사하지 않았습니다. 문 치수 충족은 실제 반입 가능을 보장하지 않습니다. 정비공간은 외곽 상자 기반의 보수적인 검사입니다.</p><p>현장 최종 확인자: ____________________　확인일: ____________________</p><p>이 문서는 인증서·설치 보증서가 아닙니다. 검토 이력은 로컬 파일이며 위변조 방지 인증이 적용되지 않았습니다.</p>`;
 }
-$('#print').onclick = () => {
+$('#print').onclick = async () => {
   const i = getInspection();
   if (!i) return;
   $('#report').innerHTML = report(i);
+  $('#report').insertAdjacentHTML('beforeend',reportEvidence(project,i));
+  if(!isStale(project,i)&&scene){
+    const figure=document.createElement('figure'),img=document.createElement('img');img.src=scene.capture();img.alt='저장된 검토와 일치하는 현재 배치';img.className='report-layout';figure.append(img);const caption=document.createElement('figcaption');caption.textContent='저장된 입력값과 일치하는 현재 배치 화면 (현재 시점·배경 표시 설정 기준)';figure.append(caption);$('#report').append(figure);
+  }
   if(i.basis.factory){
     const f=i.basis.factory,note=document.createElement('p');note.className='report-warning';
     note.textContent=`공장 배경: ${f.name} / W×D×H ${f.w}×${f.d}×${f.h} mm / 중심 X ${f.x}, 바닥 Y ${f.y}, 중심 Z ${f.z} mm / 회전 ${f.angle}°. 배경은 표시 참고용이며 자동 충돌 검사에서 제외됩니다. 별도로 등록한 현장 장애물만 검사했습니다.`;
@@ -653,6 +719,7 @@ $('#print').onclick = () => {
     note.textContent=`3D 파일 형상 포함: ${imported.join(', ')}. 위 검사는 가져온 형상의 외곽 상자 기준이며, 삼각형·곡면·빈 공간의 정밀 간섭을 검사한 결과가 아닙니다.`;
     $('#report').prepend(note);
   }
+  await Promise.allSettled(Array.from(document.querySelectorAll<HTMLImageElement>('#report img')).map(img=>img.decode()));
   window.print();
 };
 render();

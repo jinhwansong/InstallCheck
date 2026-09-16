@@ -17,6 +17,8 @@ export interface Part extends Omit<Box, 'angle'> {
 export interface MeshAsset { id: string; name: string; positions: number[] }
 export interface FactoryBackground extends Box { name: string; meshId: string }
 export interface Equipment {
+  photoId?: string;
+  review?: {model:string;source:string;reviewer:string;date:string;dimensions:boolean;clearance:boolean;protrusions:boolean;notes:string};
   id: string;
   name: string;
   revision: string;
@@ -65,12 +67,13 @@ export interface Finding {
 export interface Inspection {
   id: string;
   createdAt: string;
-  engine: '1.0';
+  engine: '1.0' | '1.1';
   basis: Basis;
   findings: Finding[];
 }
 export interface Project extends Basis {
-  schema: 1 | 2 | 3;
+  schema: 1 | 2 | 3 | 4;
+  photos?: {id:string;data:string}[];
   inspections: Inspection[];
   assets?: MeshAsset[];
 }
@@ -92,7 +95,7 @@ export function createInspection(p: Basis): Inspection {
   return {
     id: uid(),
     createdAt: new Date().toISOString(),
-    engine: '1.0',
+    engine: '1.1',
     basis: basis(p),
     findings: inspect(p),
   };
@@ -244,7 +247,11 @@ export function validateProject(input: unknown): Project {
     const equipment = list(v.equipment, 40).map((value) => {
       const e = obj(value),
         cl = obj(e.clearance);
+      const r=e.review===undefined?undefined:obj(e.review);
+      const bool=(v:unknown)=>typeof v==='boolean'?v:fail();
       return {
+        ...(e.photoId===undefined?{}:{photoId:str(e.photoId,80)}),
+        ...(r?{review:{model:str(r.model),source:str(r.source,500),reviewer:str(r.reviewer),date:date(r.date),dimensions:bool(r.dimensions),clearance:bool(r.clearance),protrusions:bool(r.protrusions),notes:str(r.notes,1000)}}:{}),
         id: id(e.id),
         name: str(e.name),
         revision: str(e.revision, 40),
@@ -294,7 +301,14 @@ export function validateProject(input: unknown): Project {
     };
   }
   const v = obj(input);
-  if (v.schema !== 1 && v.schema !== 2 && v.schema !== 3) fail();
+  if (![1,2,3,4].includes(v.schema as number)) fail();
+  let photoSize=0;
+  const photoIds=new Set<string>();
+  const photos=list(v.photos??[],20).map(value=>{
+    const a=obj(value),id=str(a.id,80),data=str(a.data,180000);
+    if(!/^[a-zA-Z0-9-]+$/.test(id)||photoIds.has(id)||!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(data))fail();
+    photoSize+=data.length;if(photoSize>1500000)fail();photoIds.add(id);return {id,data};
+  });
   let meshValues=0;
   const assetIds=new Set<string>();
   const assets = list(v.assets ?? [], 100).map(value=>{
@@ -315,7 +329,7 @@ export function validateProject(input: unknown): Project {
     if (
       !/^[a-zA-Z0-9-]+$/.test(id) ||
       historyIds.has(id) ||
-      i.engine !== '1.0' ||
+      (i.engine !== '1.0' && i.engine !== '1.1') ||
       !Number.isFinite(Date.parse(createdAt))
     )
       fail();
@@ -325,7 +339,7 @@ export function validateProject(input: unknown): Project {
     return {
       id,
       createdAt,
-      engine: '1.0' as const,
+      engine: '1.1' as const,
       basis: b,
       findings: inspect(b),
     };
@@ -333,8 +347,9 @@ export function validateProject(input: unknown): Project {
   const bases=[b,...inspections.map(i=>i.basis)];
   for(const value of bases) {
     if(value.factory&&!assetIds.has(value.factory.meshId))fail();
+    for(const e of value.equipment)if(e.photoId&&!photoIds.has(e.photoId))fail();
     for(const e of value.equipment) for(const part of e.parts)
       if(part.meshId!==undefined&&!assetIds.has(part.meshId))fail();
   }
-  return { schema: v.schema === 3 || bases.some(value=>value.factory) ? 3 : assets.length ? 2 : 1, ...b, inspections, ...(assets.length?{assets}:{}) };
+  return { schema: v.schema===4||photos.length||bases.some(b=>b.equipment.some(e=>e.review||e.photoId))?4:v.schema === 3 || bases.some(value=>value.factory) ? 3 : assets.length ? 2 : 1, ...b, inspections, ...(assets.length?{assets}:{}),...(photos.length?{photos}:{}) };
 }
