@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseMesh, parseMeshObjects, prepareMesh } from '../src/import3d.ts';
+
+test('generated mesh with arbitrary scale fits verified dimensions and rejects degenerate geometry',()=>{
+ const raw=[0,0,0, .001,0,.002, 0,.003,0];
+ const target={w:1800,d:1200,h:2400};
+ const model=prepareMesh(raw,1,'Y',target);
+ assert.deepEqual(model.size,target);assert.deepEqual(model.positions,[0,0,0,1,0,1,0,1,0]);
+ assert.throws(()=>prepareMesh(raw,1,'Y',{...target,w:NaN}),/보정 치수/);
+ assert.throws(()=>prepareMesh(raw,1,'Y',{...target,w:0}),/보정 치수/);
+ assert.throws(()=>prepareMesh([0,0,0,1,0,1,0,0,1],1,'Y',target),/평면/);
+});
 import { sampleProject, validateProject, createInspection, isStale } from '../src/model.ts';
 import { inspect } from '../src/inspection.ts';
 

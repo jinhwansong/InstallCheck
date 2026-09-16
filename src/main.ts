@@ -345,6 +345,9 @@ function render() {
       const heading=document.createElement('div');heading.className='selection-heading';heading.innerHTML=`<span class="eyebrow">SELECTED EQUIPMENT</span><h2>${esc(e.name)}</h2><span class="pill">${questions(e).length?`미확인 ${questions(e).length}개`:'담당자 확인 기록 있음'}</span>`;selection.append(heading);
       const sections=Array.from($('#inspector-content').children).slice(1);sections.forEach(node=>selection.append(node));
       selection.insertAdjacentHTML('beforeend',reviewForm(e));
+      const modelPanel=document.createElement('section');modelPanel.className='panel-section';
+      modelPanel.innerHTML=`<h3>사진 설비의 3D 형상</h3><p class="hint">현재 사진은 식별용입니다. 별도로 생성한 모델을 연결하면 상자 대신 형상을 표시합니다. 자동 생성 서비스는 아직 연결되지 않았습니다.</p><label class="field">교체할 구성요소<select id="model-part">${e.parts.map(part=>`<option value="${esc(part.id)}">${esc(part.name)}${part.meshId?' · 3D 연결됨':''}</option>`).join('')}</select></label><button type="button" class="button" id="attach-model">생성된 3D 파일 연결</button><p class="hint">선택 구성요소의 치수·위치를 유지합니다. 전체 기계 모델을 일부 부품에 연결하지 않도록 범위를 확인하세요.</p>`;
+      selection.append(modelPanel);
     }
     document.querySelectorAll<HTMLButtonElement>('[data-select]').forEach(button=>{
       const e=project.equipment.find(e=>e.id===button.dataset.select),photo=project.photos?.find(a=>a.id===e?.photoId),icon=button.querySelector('.equipment-icon');
@@ -377,6 +380,18 @@ function equipment(p: Project): Equipment {
   return p.equipment.find((e) => e.id === selected)!;
 }
 function bindPanels() {
+  const attach=$('#attach-model');
+  if(attach)attach.onclick=async()=>{
+    const equipmentId=selected,partId=$<HTMLSelectElement>('#model-part').value;
+    const part=project.equipment.find(e=>e.id===equipmentId)?.parts.find(p=>p.id===partId);
+    if(!part)return;
+    const {openModelImport}=await import('./import-dialog.ts');
+    openModelImport(({asset})=>change(p=>{
+      const target=p.equipment.find(e=>e.id===equipmentId)?.parts.find(p=>p.id===partId);
+      if(!target)throw new Error('연결할 구성요소가 없어졌습니다. 다시 선택하세요.');
+      p.assets=[...(p.assets??[]),asset];target.meshId=asset.id;
+    }),{w:part.w,d:part.d,h:part.h});
+  };
   onChange(document.querySelector('#review-form'),(f,p)=>{
     equipment(p).review={model:String(f.get('model')),source:String(f.get('source')),reviewer:String(f.get('reviewer')),date:String(f.get('date')),dimensions:f.has('dimensions'),clearance:f.has('clearance'),protrusions:f.has('protrusions'),notes:String(f.get('notes'))};
   });

@@ -83,7 +83,7 @@ export async function parseMesh(buffer:ArrayBuffer, filename:string):Promise<num
   return (await parseMeshObjects(buffer,filename)).flatMap(object=>object.positions);
 }
 
-export function prepareMesh(raw: number[], unit: number, up: 'Y'|'Z') {
+export function prepareMesh(raw: number[], unit: number, up: 'Y'|'Z', fitTo?:{w:number;d:number;h:number}) {
   if (![1,10,1000].includes(unit) || !['Y','Z'].includes(up) || !raw.length || raw.length % 9 || raw.length > MAX_MESH_VALUES)
     throw new Error('단위 또는 메시 형식을 확인하세요.');
   const points = raw.slice();
@@ -96,7 +96,9 @@ export function prepareMesh(raw: number[], unit: number, up: 'Y'|'Z') {
     }
   }
   const spans=max.map((n,a)=>n-min[a]);
-  if (spans.some(n=>n*unit<1 || n*unit>100000))
+  if (fitTo && Object.values(fitTo).some(n=>!Number.isInteger(n)||n<1||n>100000))
+    throw new Error('보정 치수는 1~100,000 mm의 정수여야 합니다.');
+  if (spans.some(n=>!Number.isFinite(n)||n<=0 || (!fitTo && (n*unit<1 || n*unit>100000))))
     throw new Error('각 치수가 1~100,000 mm여야 합니다. 단위·상향 축을 확인하세요. 평면 메시만 있는 파일은 지원하지 않습니다.');
-  return {positions:points.map((n,i)=>Math.round((n-min[i%3])/spans[i%3]*1e6)/1e6), size:{w:Math.ceil(spans[0]*unit),h:Math.ceil(spans[1]*unit),d:Math.ceil(spans[2]*unit)}};
+  return {positions:points.map((n,i)=>Math.round((n-min[i%3])/spans[i%3]*1e6)/1e6), size:fitTo?{...fitTo}:{w:Math.ceil(spans[0]*unit),h:Math.ceil(spans[1]*unit),d:Math.ceil(spans[2]*unit)}};
 }

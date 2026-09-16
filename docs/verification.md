@@ -1,5 +1,9 @@
 # Verification - initial workspace
 
+## Photo model linking — 2026-09-16
+
+`npm test` passed 23 tests and the production build passed. The browser smoke check additionally links a sample OBJ to an existing photo equipment part, asserts unchanged dimensions/placement/photo and historical snapshot, and verifies undo/redo. This is file linking and size calibration, not an image-to-3D inference test. No image was sent to a generation provider. Automatic generation is pending a provider/account or a suitable local GPU environment.
+
 ## Workflow update — 2026-09-16
 
 - `npm test`: 22 tests passed, including DXF transforms and unsupported geometry, photo references, evidence invalidation, and existing geometry/import behavior.
